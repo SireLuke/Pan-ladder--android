@@ -1,0 +1,10 @@
+{
+  "tasks": {
+    "boot": "deno run --allow-net --allow-read server.ts"
+  },
+  "fmt": {
+    "files": {
+      "exclude": ["sw.js"]
+    }
+  }
+}
