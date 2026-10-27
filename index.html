@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PAN View Ladder Prototype</title>
+<meta name="theme-color" content="#0b1020">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<style>
+:root{--bg:#0b1020;--panel:#121a30;--ink:#e6ecff;--mut:#8fa0c8;--line:#26335a;--acc:#5ad1ff;--warn:#ffb454;--ok:#7be0a1}
+@media (prefers-color-scheme: light){:root{--bg:#f4f6fb;--panel:#fff;--ink:#14203d;--mut:#55658c;--line:#cfd7ea;--acc:#0a6fa8;--warn:#a85a00;--ok:#16794a}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+header{padding:12px 16px;border-bottom:1px solid var(--line);display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center}
+h1{font-size:16px;margin:0}
+.syn{color:var(--warn);font-weight:600}
+main{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:12px;padding:12px 16px}
+@media (max-width:860px){main{grid-template-columns:1fr}}
+#stage{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px}
+canvas{width:100%;display:block;border-radius:6px;background:#050912;touch-action:none}
+.bar{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}
+button{background:var(--panel);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:6px 10px;cursor:pointer;font:inherit}
+button[aria-pressed=true]{border-color:var(--acc);color:var(--acc);font-weight:600}
+button:focus-visible,input:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+input[type=range]{width:100%}
+aside{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px;align-self:start}
+aside h2{font-size:15px;margin:0 0 6px}
+dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:4px 10px}
+dt{color:var(--mut)} dd{margin:0;overflow-wrap:anywhere}
+.tag{display:inline-block;border:1px solid var(--line);border-radius:999px;padding:0 8px;font-size:12px}
+.st-implemented{color:var(--ok);border-color:var(--ok)} .st-unval{color:var(--warn);border-color:var(--warn)}
+.chk{margin-top:10px;padding:8px;border:1px dashed var(--line);border-radius:6px;font-size:13px}
+table{border-collapse:collapse;width:100%;font-size:13px} th,td{border-bottom:1px solid var(--line);padding:4px 6px;text-align:left}
+#tbl{margin-top:10px;max-height:260px;overflow:auto;display:none}
+.note{color:var(--mut);font-size:12px;margin-top:8px}
+</style>
+</head>
+<body>
+<header>
+  <h1>PAN View Ladder — prototype v0.1</h1>
+  <span class="syn">SYNTHETIC DATA ONLY · not Earth, not a real corpus, V8 values are invented</span>
+</header>
+<main>
+  <section id="stage" aria-label="View ladder">
+    <canvas id="cv" width="900" height="560" role="img" aria-label="Current level visualization; see the declaration panel and table view for the same information as text"></canvas>
+    <div class="bar" id="lv" role="group" aria-label="Jump to level"></div>
+    <label for="zoom">Continuous zoom (level <span id="zv">0.0</span>) — drag the canvas to rotate at any level</label>
+    <input id="zoom" type="range" min="0" max="5" step="0.01" value="0">
+    <div class="bar" id="presets" role="group" aria-label="View presets"><button data-p="0,0,0">Overhead</button><button data-p="35,-50,0">Isometric</button><button data-p="0,-78,0">Second-person (eye level)</button><button data-p="-34,-20,0">Reset</button></div>
+    <div style="display:grid;grid-template-columns:auto 1fr auto;gap:2px 8px;align-items:center;font-size:13px">
+      <label for="yaw">yaw</label><input id="yaw" type="range" min="-180" max="180" step="1" value="-34"><span id="yawv"></span>
+      <label for="pit">pitch</label><input id="pit" type="range" min="-90" max="90" step="1" value="-20"><span id="pitv"></span>
+      <label for="rol">roll</label><input id="rol" type="range" min="-180" max="180" step="1" value="0"><span id="rolv"></span>
+      <label for="pl">5-D plane</label><select id="pl"></select><span><label><input type="checkbox" id="spin"> spin</label></span>
+      <label for="pa">5-D angle</label><input id="pa" type="range" min="-180" max="180" step="1" value="0"><span id="pav"></span>
+      <label for="tm">time t</label><input id="tm" type="range" min="0" max="39.9" step="0.05" value="0"><span id="tmv"></span>
+    </div>
+    <div class="note" id="ori"></div>
+    <div class="bar"><button id="play" aria-pressed="false">Play time</button><button id="tbtn" aria-pressed="false">Table view</button><button id="auto" aria-pressed="false">Auto-tour</button><button id="chkbtn">Run canonical check</button></div>
+  </section>
+  <aside aria-live="polite">
+    <h2 id="lname"></h2>
+    <dl id="decl"></dl>
+    <div class="chk" id="chk"></div>
+    <div id="tbl"></div>
+    <p class="note">View state (zoom, level, rotation) is disposable. Canonical data (the 1,000 facets) is frozen and digest-checked.</p>
+  </aside>
+</main>
+<script>
+"use strict";
+// ---------- seeded PRNG ----------
+function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296}}
+const rnd=mulberry32(42), gauss=()=>{let u=0,v=0;while(!u)u=rnd();while(!v)v=rnd();return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v)};
+const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
+// ---------- canonical data: 1,000 synthetic facets ----------
+const N=1000, LANGS=["en","es","ar","uz-Cyrl","sw","hi"], CATS=6;
+const CITY=[{n:"City A",lat:22,lon:34},{n:"City B",lat:30,lon:48},{n:"City C",lat:14,lon:52}];
+const NATION={lat0:8,lat1:38,lon0:26,lon1:62};
+function mkFacet(i){
+  const cat=Math.floor(rnd()*CATS), geo=rnd()<0.18;
+  let lat=null,lon=null;
+  if(geo){ if(rnd()<0.7){const c=CITY[Math.floor(rnd()*3)];lat=c.lat+gauss()*0.6;lon=c.lon+gauss()*0.6}
+           else{lat=NATION.lat0+rnd()*(NATION.lat1-NATION.lat0);lon=NATION.lon0+rnd()*(NATION.lon1-NATION.lon0)} }
+  const scored=rnd()<0.6, base=cat/CATS;
+  const v8=scored?[0,1,2,3,4,5,6,7].map(k=>clamp(0.5+0.35*Math.sin(cat*1.7+k*0.9)+gauss()*0.12,0,1)):null;
+  return {id:"F"+String(i).padStart(4,"0"),title:"Synthetic facet "+i,lang:LANGS[Math.floor(rnd()*LANGS.length)],cat,lat,lon,
+    restricted:rnd()<0.04,v8,sd:scored?0.04+rnd()*0.1:null,hy:rnd()<0.75?[0,1,2,3,4].map(k=>clamp(0.5+0.32*Math.sin(cat*1.1+k*1.7)+gauss()*0.15,0,1)):null,snapshot:"2023-01-15 (synthetic)",links:[]};
+}
+const F=[];for(let i=0;i<N;i++)F.push(mkFacet(i));
+// links: each facet links to 3 random facets, biased to same category
+for(const f of F){for(let k=0;k<3;k++){let j;do{j=Math.floor(rnd()*N)}while(j===+f.id.slice(1)||(rnd()<0.7&&F[j].cat!==f.cat));f.links.push(j)}}
+function digest(o){const s=JSON.stringify(o);let h=2166136261;for(let i=0;i<s.length;i++){h^=s.charCodeAt(i);h=Math.imul(h,16777619)}return (h>>>0).toString(16).padStart(8,"0")}
+F.forEach(f=>Object.freeze(f));Object.freeze(F);
+const DIGEST0=digest(F);
+const hyNull=F.filter(f=>!f.hy).length;
+const geoItems=F.filter(f=>f.lat!==null), restrictedN=F.filter(f=>f.restricted).length, nullV8=F.filter(f=>!f.v8).length;
+// ---------- PCA (power iteration) for L4 ----------
+const sc=F.filter(f=>f.v8&&!f.restricted); const mean=Array(8).fill(0);sc.forEach(f=>f.v8.forEach((x,k)=>mean[k]+=x/sc.length));
+const X=sc.map(f=>f.v8.map((x,k)=>x-mean[k]));
+function pc(skips){let v=Array(8).fill(0).map(()=>rnd()-0.5);for(let it=0;it<60;it++){const w=Array(8).fill(0);for(const r of X){let d=0;for(let k=0;k<8;k++)d+=r[k]*v[k];for(let k=0;k<8;k++)w[k]+=r[k]*d}
+  for(const sk of skips){let d=0;for(let k=0;k<8;k++)d+=w[k]*sk[k];for(let k=0;k<8;k++)w[k]-=d*sk[k]}
+  const n=Math.hypot(...w)||1;v=w.map(x=>x/n)}return v}
+const pc1=pc([]),pc2=pc([pc1]),pc3=pc([pc1,pc2]);
+const dot=(r,p)=>r.reduce((a,x,k)=>a+x*p[k],0);
+const proj=sc.map((f,i)=>({f,x:dot(X[i],pc1),y:dot(X[i],pc2),z:dot(X[i],pc3)}));
+// ---------- UHFE / UDFE explicit solver on the facet link graph (synthetic) ----------
+// UHFE: Phi_tt + g*Phi_t = -c^2 L Phi - kap*(Phi - S_H),  S_H = U_H - 0.5 (scored facets) else 0   [damped wave, formation]
+// UDFE: Psi_t = -sum_j w_ij*G_ij*(Psi_i-Psi_j) - lam_i*Psi, G_i = G0*U_D (unscored: neutral default 0.5, flagged)   [flux-form diffusion, decoherence]
+const ADJ=Array.from({length:N},()=>new Set());F.forEach((f,i)=>f.links.forEach(j=>{if(i!==j){ADJ[i].add(j);ADJ[j].add(i)}}));
+const NB=ADJ.map(s=>[...s]),dmax=Math.max(...NB.map(a=>a.length));
+const UHv=F.map(f=>f.v8?(f.v8[0]+f.v8[1]+f.v8[2]+f.v8[4]+f.v8[6])/5:null);
+const UDv=F.map(f=>f.v8?(f.v8[3]+(1-f.v8[2])+(1-f.v8[0]))/3:null);
+const YOU=Math.max(0,F.findIndex(f=>f.lat!==null&&!f.restricted&&Math.hypot(f.lat-CITY[0].lat,f.lon-CITY[0].lon)<0.4));
+const SOLP={c:1,kap:0.5,g:0.4,G0:0.8,lam:0.05,T:40};
+function runSolver(o={}){const p=Object.assign({},SOLP,o),dt=Math.min(0.5/Math.sqrt(p.c*p.c*2*dmax+p.kap),0.5/(p.G0*dmax)),k=Math.max(1,Math.round(0.1/dt)),steps=Math.round(p.T/dt);
+ const Gm=UDv.map(u=>p.G0*(u===null?0.5:u)),Lm=UDv.map(u=>p.lam*(u===null?0.5:u)),S=UHv.map(u=>u===null?0:u-0.5);
+ const P=new Float64Array(N),V=new Float64Array(N),Q=new Float64Array(N),dQ=new Float64Array(N);P[YOU]=1;Q[YOU]=1;
+ const FP=[],FQ=[];let maxP=0,mass0=1,energyOK=true,prevE=Infinity;
+ for(let st=0;st<=steps;st++){
+  if(st%k===0){FP.push(Float32Array.from(P));FQ.push(Float32Array.from(Q))}
+  for(let i=0;i<N;i++){let lap=0;const a=NB[i];for(let q=0;q<a.length;q++)lap+=P[i]-P[a[q]];V[i]+=dt*(-p.c*p.c*lap-p.kap*(P[i]-S[i])-p.g*V[i])}
+  for(let i=0;i<N;i++){P[i]+=dt*V[i];if(Math.abs(P[i])>maxP)maxP=Math.abs(P[i])}
+  for(let i=0;i<N;i++){let fl=0;const a=NB[i];for(let q=0;q<a.length;q++){const j=a[q];fl+=0.5*(Gm[i]+Gm[j])*(Q[i]-Q[j])}dQ[i]=-fl-Lm[i]*Q[i]}
+  for(let i=0;i<N;i++)Q[i]+=dt*dQ[i];
+ }
+ let sumQ=0,minQ=Infinity;for(let i=0;i<N;i++){sumQ+=Q[i];minQ=Math.min(minQ,Q[i])}
+ return{dt,fdt:dt*k,FP,FQ,maxP,sumQ,minQ,P:Float64Array.from(P)}}
+const SOL=runSolver();
+const pct=(fr,q)=>{const v=[];for(let t=2;t<fr.length;t+=5)for(let i=0;i<N;i+=3)v.push(Math.abs(fr[t][i]));v.sort((a,b)=>a-b);return v[Math.floor(q*(v.length-1))]||1};
+const PREF=Math.max(pct(SOL.FP,0.99),1e-6),QREF=Math.max(pct(SOL.FQ,0.99),1e-6);
+const fIdx=()=>Math.min(SOL.FP.length-1,Math.floor((((view.t%40)+40)%40)/SOL.fdt));
+const fa=i=>clamp(SOL.FP[fIdx()][i]/PREF,-1,1), fq=i=>clamp(SOL.FQ[fIdx()][i]/QREF,0,1);
+// ---------- procedural planet (synthetic) ----------
+const blobs=Array.from({length:34},()=>({lat:(rnd()-0.5)*150,lon:(rnd()-0.5)*360,r:6+rnd()*16}));
+// ensure nation region is land
+blobs.push({lat:23,lon:44,r:28});
+const LW=180,LH=90,land=new Float32Array(LW*LH);
+for(let y=0;y<LH;y++)for(let x=0;x<LW;x++){const lat=90-(y+.5)*2,lon=-180+(x+.5)*2;let e=0;for(const b of blobs){const dl=Math.min(Math.abs(lon-b.lon),360-Math.abs(lon-b.lon));const d=Math.hypot(lat-b.lat,dl*Math.cos(lat*Math.PI/180));e=Math.max(e,1-d/b.r)}land[y*LW+x]=e}
+// ---------- level declarations ----------
+const LEVELS=[
+ {id:"L0",name:"Blue Marble Earth (synthetic planet)",kind:"observation",space:"Geographic lat/lon + synthetic elevation",crs:"orthographic projection of a spherical datum (placeholder)",src:"Procedural blobs, seed 42 (NOT real topography)",res:"2° grid",rule:"view.geo_to_ortho v0.2 (+yaw/pitch/roll,t)",status:"implemented (synthetic)",gaps:()=>`${N-geoItems.length} of ${N} facets have no location → not shown at L0–L3; ${restrictedN} restricted facets redacted`,warn:"Real build needs a public-domain imagery + elevation pack with version, license, timestamp."},
+ {id:"L1",name:"Overhead nation",kind:"observation",space:"Projected map (equirectangular, placeholder)",crs:"lat/lon → plane, no true-scale claim",src:"Synthetic outline + synthetic 'disputed' area",res:"≈ 0.1° pixels",rule:"view.geo_to_plane v0.1",status:"implemented (synthetic)",gaps:()=>`${geoItems.length} geotagged facets; contested area hatched, not resolved`,warn:"A real boundary dataset must be named and versioned; disputes flagged, not decided."},
+ {id:"L2",name:"City",kind:"observation",space:"Projected map, city window",crs:"local plane around City A",src:"Synthetic street grid; facets with source-supplied location only",res:"≈ 0.01°",rule:"view.geo_to_plane v0.1",status:"implemented (synthetic)",gaps:()=>`only geotagged facets inside the window; no invented locations`,warn:"Real street/building data may carry share-alike licensing (e.g. ODbL)."},
+ {id:"L3",name:"Second person (you are here)",kind:"pivot",space:"Egocentric rings by link-hops",crs:"none: relational, not spatial",src:"Synthetic user position/path (LOCAL ONLY) + facet link graph",res:"hop distance 1–3",rule:"kernel.world_to_person v0.1",status:"implemented (synthetic)",gaps:()=>`restricted facets shown as redacted blocks; ${N-geoItems.length} unlocated facets reachable only by links`,warn:"Personal location/path never leaves the device; excluded from exports and any ledger."},
+ {id:"L4",name:"V8 manifold (2-D PCA of 8-D)",kind:"representation",space:"V8 = (h,R,u,d,τ,χ,s,f), PCA projection",crs:"PCA axes from synthetic scores",src:"Invented scores for 60% of facets; the rest null; splats from the solver field",res:"continuous",rule:"kernel.facet_to_v8 v0.1 (UNVALIDATED)",status:"UNVALIDATED exploratory",gaps:()=>`${proj.length} plotted · ${nullV8} null (not scored) not plotted · restricted excluded`,warn:"Proximity here reflects the scoring mapping, not proven structure; V8 stays null unless independently scored."},
+ {id:"L5",name:"Fractal library space — 5-D Hydra product space",kind:"representation",space:"5 axes: Bubble Cymatics · Honeycomb · Spider Web · Chiral DNA · Ommatidia (+ t)",crs:"per-facet geometry affinities in [0,1]; axes are typed families, NOT assumed orthogonal",src:"Synthetic affinities (75% assigned, 25% null); fields from the same solver",res:"continuous; 10 rotation planes",rule:"kernel.facet_to_hydra5 v0.1",status:"implemented (synthetic)",gaps:()=>`${hyNull} facets unassigned (null) not plotted · ${restrictedN} restricted excluded`,warn:"A 5-D→3-D view distorts distances; a facet may belong to several geometries or none. Affinity scoring rules must be declared before real use."}
+];
+// ---------- state (view only) ----------
+const view={z:0,yaw:-0.6,pitch:-0.35,roll:0,t:0,play:false,sel:0,depth:3,ang:new Float64Array(10),pl:0,spin:false};
+const cv=document.getElementById("cv"),ctx=cv.getContext("2d");
+function fit(){const w=cv.clientWidth||900;const dpr=Math.min(window.devicePixelRatio||1,2);cv.width=w*dpr;cv.height=Math.round(w*0.62)*dpr;ctx.setTransform(dpr,0,0,dpr,0,0);cv.style.height=Math.round(w*0.62)+"px"}
+const W=()=>cv.clientWidth, H=()=>Math.round(cv.clientWidth*0.62);
+const COL=["#5ad1ff","#ffb454","#7be0a1","#ff7a90","#b69cff","#f0e36a"];
+const lbl=(t,x,y,c="#cfe0ff",s=12,al="left")=>{ctx.fillStyle=c;ctx.font=s+"px system-ui,sans-serif";ctx.textAlign=al;ctx.fillText(t,x,y)};
+// ---------- 3-D orientation + time (view state only) ----------
+// Convention: right-handed, y up, z toward viewer. Order: yaw (about y) -> pitch (about x) -> roll (about z).
+function rotate(x,y,z){const cr=Math.cos(view.roll),sr=Math.sin(view.roll),cp=Math.cos(view.pitch),sp=Math.sin(view.pitch),cy=Math.cos(view.yaw),sy=Math.sin(view.yaw);
+ const X=x*cy+z*sy,Z=-x*sy+z*cy,Y2=y*cp-Z*sp,Z2=y*sp+Z*cp;return[X*cr-Y2*sr,X*sr+Y2*cr,Z2]}
+function O(x,y,z){const r=rotate(x,y,z),w=W(),h=H(),sc=Math.min(w,h)*0.42,s=1/(1-r[2]*0.22);return[w/2+r[0]*s*sc,h/2-r[1]*s*sc,r[2],s]}
+function poly(P,fill,stroke,close=true){ctx.beginPath();P.forEach((p,i)=>i?ctx.lineTo(p[0],p[1]):ctx.moveTo(p[0],p[1]));if(close)ctx.closePath();if(fill){ctx.fillStyle=fill;ctx.fill()}if(stroke){ctx.strokeStyle=stroke;ctx.stroke()}}
+const PX=(lon,b)=>((lon-b.lon0)/(b.lon1-b.lon0)*2-1)*1.5, PY=(lat,b)=>((lat-b.lat0)/(b.lat1-b.lat0)*2-1)*0.9;
+// ---- Gaussian splats: G(x)=a*exp(-1/2 (x-mu)^T S^-1 (x-mu)); a=Phi_H (formation), spread grows with Psi (decoherence)
+function sprite(rgb){const c=document.createElement("canvas");c.width=c.height=64;const g=c.getContext("2d"),gr=g.createRadialGradient(32,32,0,32,32,32);
+ for(let k=0;k<=8;k++){const t=k/8;gr.addColorStop(t,`rgba(${rgb},${Math.exp(-4.5*t*t).toFixed(3)})`)}g.fillStyle=gr;g.fillRect(0,0,64,64);return c}
+const SPR={pos:sprite("90,209,255"),neg:sprite("255,122,144")};
+function splat(x,y,r,i){const a=fa(i),q=fq(i);if(Math.abs(a)<0.02&&q<0.02)return;const rad=r*(1+2.2*q);ctx.save();ctx.globalCompositeOperation="lighter";
+ ctx.globalAlpha=Math.min(0.55,0.03+0.3*Math.abs(a));ctx.drawImage(a>=0?SPR.pos:SPR.neg,x-rad,y-rad,2*rad,2*rad);
+ if(q>0.02){ctx.globalAlpha=Math.min(0.2,q*0.25);ctx.drawImage(SPR.neg,x-rad*1.6,y-rad*1.6,3.2*rad,3.2*rad)}ctx.restore();
+ if(!F[i].v8){ctx.save();ctx.setLineDash([2,2]);ctx.strokeStyle="#ffffff88";ctx.beginPath();ctx.arc(x,y,r*0.5,0,7);ctx.stroke();ctx.restore()}}
+// surface displacement = sum of splats (the same Gaussian representation)
+let CUR=[];function surf(x,y){let s=0;for(const q of CUR){const dx=x-q.x,dy=y-q.y,d2=dx*dx+dy*dy;if(d2<0.12)s+=q.a*Math.exp(-d2/(2*q.s*q.s))}return s}
+const dz=(x,y,k=0.12)=>k*2.2*surf(x,y);
+function setCUR(list){CUR=list.map(([x,y,i])=>({x,y,a:fa(i),s:0.09*(1+2.2*fq(i))}))}
+function dot3(x,y,col,r=3,k=0.12,i=null){const p=O(x,y,dz(x,y,k));if(i!==null)splat(p[0],p[1],r*3*p[3],i);ctx.fillStyle=col;ctx.beginPath();ctx.arc(p[0],p[1],r*p[3],0,7);ctx.fill();return p}
+// ---------- level renderers ----------
+function L0(){const w=W(),h=H(),sc=Math.min(w,h)*0.42;
+ const c0=O(0,0,0);ctx.fillStyle="#0a1530";ctx.beginPath();ctx.arc(c0[0],c0[1],sc*1.02,0,7);ctx.fill();
+ for(let y=0;y<LH;y++){const lat=(90-(y+.5)*2)*Math.PI/180;for(let x=0;x<LW;x++){const lon=(-180+(x+.5)*2)*Math.PI/180;
+  const ux=Math.cos(lat)*Math.sin(lon),uy=Math.sin(lat),uz=Math.cos(lat)*Math.cos(lon),q=O(ux,uy,uz);if(q[2]<0)continue;const e=land[y*LW+x];
+  if(e>0){const g=Math.round(70+120*e);ctx.fillStyle=`rgb(${60+g*0.4|0},${g},${70+e*40|0})`}else ctx.fillStyle="#12306a";
+  ctx.fillRect(q[0]-1,q[1]-1,2.4*q[3],2.4*q[3])}}
+ for(const f of geoItems){if(f.restricted)continue;const la=f.lat*Math.PI/180,lo=f.lon*Math.PI/180,ux=Math.cos(la)*Math.sin(lo),uy=Math.sin(la),uz=Math.cos(la)*Math.cos(lo),q=O(ux*1.01,uy*1.01,uz*1.01);if(q[2]<0.02)continue;splat(q[0],q[1],8*q[3],+f.id.slice(1))}
+ lbl("synthetic planet · Gaussian splats at geotagged facets: cyan/pink = Φ(formation) ±, warm halo = Ψ(decoherence spread)",12,H()-10,"#9fb4e8")}
+function L1(){const w=W(),h=H(),b=NATION,P=[];
+ setCUR(geoItems.filter(f=>!f.restricted).map(f=>[PX(f.lon,b),PY(f.lat,b),+f.id.slice(1)]));
+ for(let a=0;a<64;a++){const t=a/64*2*Math.PI,rr=1+0.12*Math.sin(3*t+1)+0.08*Math.sin(5*t),lat=23+Math.sin(t)*14*rr,lon=44+Math.cos(t)*17*rr,x=PX(lon,b),y=PY(lat,b);P.push(O(x,y,dz(x,y)))}
+ ctx.lineWidth=2;poly(P,"#13305a","#7fb0ff");
+ const dc=[PX(56,b),PY(16,b)],ring=[];for(let a=0;a<28;a++){const t=a/28*2*Math.PI,x=dc[0]+Math.cos(t)*0.22,y=dc[1]+Math.sin(t)*0.22;ring.push(O(x,y,dz(x,y)))}
+ ctx.save();ctx.beginPath();ring.forEach((p,i)=>i?ctx.lineTo(p[0],p[1]):ctx.moveTo(p[0],p[1]));ctx.closePath();ctx.clip();ctx.strokeStyle="#ffb454";ctx.lineWidth=1;for(let k=-w;k<w;k+=7){ctx.beginPath();ctx.moveTo(k,h);ctx.lineTo(k+h,0);ctx.stroke()}ctx.restore();
+ ctx.setLineDash([4,3]);poly(ring,null,"#ffb454");ctx.setLineDash([]);const lp=O(dc[0]-0.3,dc[1]-0.32,0);lbl("contested area (flagged, unresolved)",lp[0],lp[1],"#ffb454");
+ for(const c of CITY){const x=PX(c.lon,b),y=PY(c.lat,b),p=dot3(x,y,"#fff",3.5);lbl(c.n,p[0]+8,p[1]+4)}
+ for(const f of geoItems){if(f.restricted)continue;dot3(PX(f.lon,b),PY(f.lat,b),COL[f.cat],1.6,0.12,+f.id.slice(1))}
+ lbl("synthetic nation · surface height = sum of Gaussian splats of Φ · tilt to see it",12,H()-10,"#9fb4e8")}
+function L2(){const w=W(),h=H(),c=CITY[0],b={lat0:c.lat-2,lat1:c.lat+2,lon0:c.lon-2.4,lon1:c.lon+2.4};
+ const pts=[];for(const f of geoItems){if(f.lat<b.lat0||f.lat>b.lat1||f.lon<b.lon0||f.lon>b.lon1)continue;pts.push([f,PX(f.lon,b),PY(f.lat,b)])}
+ setCUR(pts.filter(p=>!p[0].restricted).map(p=>[p[1],p[2],+p[0].id.slice(1)]));
+ ctx.lineWidth=1;
+ for(let i=0;i<=12;i++){const x=-1.5+i*3/12,P=[];for(let j=0;j<=16;j++){const y=-0.9+j*1.8/16;P.push(O(x,y,dz(x,y,0.1)))}poly(P,null,"#2b3d78",false)}
+ for(let j=0;j<=8;j++){const y=-0.9+j*1.8/8,P=[];for(let i=0;i<=24;i++){const x=-1.5+i*3/24;P.push(O(x,y,dz(x,y,0.1)))}poly(P,null,"#2b3d78",false)}
+ let n=0;pts.sort((p,q)=>O(p[1],p[2],0)[2]-O(q[1],q[2],0)[2]);
+ for(const [f,x,y] of pts){if(f.restricted){const p=O(x,y,dz(x,y,0.1));ctx.fillStyle="#555";ctx.fillRect(p[0]-4,p[1]-4,8,8);continue}n++;dot3(x,y,COL[f.cat],3.4,0.1,+f.id.slice(1))}
+ const me=O(0,0,dz(0,0,0.1));ctx.strokeStyle="#fff";ctx.lineWidth=2;ctx.beginPath();ctx.arc(me[0],me[1],9*me[3],0,7);ctx.stroke();lbl("you (local)",me[0]+12,me[1]-8,"#fff");
+ lbl(`${n} geotagged facets in window · gray = redacted · dashed ring = unscored (field only by propagation)`,12,H()-10,"#9fb4e8")}
+function neighbors(start){const seen=new Map([[start,0]]);let fr=[start];for(let hp=1;hp<=3;hp++){const nx=[];for(const i of fr)for(const j of NB[i])if(!seen.has(j)){seen.set(j,hp);nx.push(j)}fr=nx}return seen}
+function L3(){view.sel=YOU;const seen=neighbors(YOU);ctx.lineWidth=1;
+ const ring={1:[],2:[],3:[]};seen.forEach((hp,i)=>{if(hp>0)ring[hp].push(i)});const pos=new Map([[YOU,[0,0]]]);
+ for(const hp of [1,2,3]){const L=ring[hp].slice(0,hp===1?6:hp===2?18:36);L.forEach((i,k)=>{const a=(k+0.5)/L.length*2*Math.PI+hp;pos.set(i,[Math.cos(a)*hp*0.3,Math.sin(a)*hp*0.3])})}
+ setCUR([...pos].map(([i,p])=>[p[0],p[1],i]));
+ for(let r=1;r<=3;r++){const P=[],rad=r*0.3;for(let a=0;a<=48;a++){const t=a/48*2*Math.PI,x=Math.cos(t)*rad,y=Math.sin(t)*rad;P.push(O(x,y,dz(x,y,0.1)))}poly(P,null,"#2f4180",false);const lp=O(rad,0,0);lbl("hop "+r,lp[0]+4,lp[1]-4,"#6f84b8",11)}
+ ctx.strokeStyle="#4a5f9a66";pos.forEach((p,i)=>{if(i===YOU)return;for(const j of NB[i]){if(pos.has(j)&&seen.get(j)===seen.get(i)-1){const q=pos.get(j),A=O(p[0],p[1],dz(p[0],p[1],0.1)),B=O(q[0],q[1],dz(q[0],q[1],0.1));ctx.beginPath();ctx.moveTo(A[0],A[1]);ctx.lineTo(B[0],B[1]);ctx.stroke()}}});
+ pos.forEach((p,i)=>{const f=F[i];if(f.restricted){const q=O(p[0],p[1],dz(p[0],p[1],0.1));ctx.fillStyle="#555";ctx.fillRect(q[0]-5,q[1]-5,10,10);return}dot3(p[0],p[1],COL[f.cat],i===YOU?6:3,0.1,i)});
+ const me=O(0,0,dz(0,0,0.1));ctx.strokeStyle="#fff";ctx.lineWidth=2;ctx.beginPath();ctx.arc(me[0],me[1],11*me[3],0,7);ctx.stroke();lbl("YOU",me[0],me[1]-16,"#fff",12,"center");
+ lbl(`pulse released at YOU (t=0) spreads omnidirectionally over link hops · ${pos.size-1} facets shown · gray = redacted`,12,H()-10,"#9fb4e8")}
+const BOXE=[[0,1],[1,3],[3,2],[2,0],[4,5],[5,7],[7,6],[6,4],[0,4],[1,5],[2,6],[3,7]];
+function L4(){const w=W(),h=H();ctx.fillStyle="#ffb45422";ctx.fillRect(0,0,w,26);lbl("UNVALIDATED · exploratory · proximity reflects the scoring mapping, not proven structure",12,17,"#ffb454");
+ const mm=k=>{const v=proj.map(p=>p[k]);return[Math.min(...v),Math.max(...v)]},[x0,x1]=mm("x"),[y0,y1]=mm("y"),[z0,z1]=mm("z"),nz=(v,a,b)=>(v-a)/(b-a)*2-1;
+ const C=[];for(let i=0;i<8;i++)C.push(O(i&1?1:-1,i&2?0.9:-0.9,i&4?0.8:-0.8));ctx.strokeStyle="#2b3d78";ctx.lineWidth=1;for(const [a,b] of BOXE){ctx.beginPath();ctx.moveTo(C[a][0],C[a][1]);ctx.lineTo(C[b][0],C[b][1]);ctx.stroke()}
+ lbl("PC1",C[1][0]+6,C[1][1],"#6f84b8",11);lbl("PC2",C[2][0]+6,C[2][1],"#6f84b8",11);lbl("PC3",C[4][0]+6,C[4][1],"#6f84b8",11);
+ const pts=proj.map(p=>({p,o:O(nz(p.x,x0,x1),nz(p.y,y0,y1)*0.9,nz(p.z,z0,z1)*0.8)})).sort((a,b)=>a.o[2]-b.o[2]);
+ for(const q of pts){const o=q.o,col=COL[q.p.f.cat],i=+q.p.f.id.slice(1);splat(o[0],o[1],5*o[3],i);ctx.fillStyle=col+"cc";ctx.beginPath();ctx.arc(o[0],o[1],Math.max(1,2.4*o[3]),0,7);ctx.fill()}
+ lbl(`${proj.length} plotted in 3 PCs · ${nullV8} null (not scored) NOT plotted here · splats = solver field on the link graph`,12,H()-10,"#9fb4e8")}
+// ---- L5: 5-D Hydra product space; axes = Bubble Cymatics, Honeycomb, Spider Web, Chiral DNA, Ommatidia (Compound-Eye)
+const AX=["bubble","honeycomb","web","DNA","ommatidia"],AXC=["#b69cff","#ffb454","#5ad1ff","#7be0a1","#ff7a90"];
+const PLANES=[];for(let i=0;i<5;i++)for(let j=i+1;j<5;j++)PLANES.push([i,j]);
+function R5(){let M=[0,1,2,3,4].map(i=>[0,1,2,3,4].map(j=>+(i===j)));
+ PLANES.forEach(([i,j],k)=>{const a=view.ang[k];if(!a)return;const c=Math.cos(a),s=Math.sin(a),N2=M.map(r=>r.slice());for(let q=0;q<5;q++){N2[i][q]=c*M[i][q]-s*M[j][q];N2[j][q]=s*M[i][q]+c*M[j][q]}M=N2});return M}
+function L5(){const w=W(),h=H(),M=R5();ctx.fillStyle="#b69cff22";ctx.fillRect(0,0,w,26);lbl("5-D Hydra space (synthetic affinities, each axis ∈ [0,1]) · 4th & 5th axes after rotation → size & brightness",12,17,"#c9b8ff");
+ const o0=O(0,0,0);for(let k=0;k<5;k++){const e=O(M[0][k]*1.15,M[1][k]*1.15,M[2][k]*1.15);ctx.strokeStyle=AXC[k];ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(o0[0],o0[1]);ctx.lineTo(e[0],e[1]);ctx.stroke();lbl(AX[k],e[0]+5,e[1]+4,AXC[k],12)}
+ const items=[];for(const f of F){if(f.restricted||!f.hy)continue;const x=f.hy.map(v=>2*v-1),y=M.map(r=>r.reduce((a,m,k)=>a+m*x[k],0));items.push({i:+f.id.slice(1),f,y,o:O(y[0]*0.95,y[1]*0.95,y[2]*0.95)})}
+ items.sort((a,b)=>a.o[2]-b.o[2]);
+ for(const q of items){const o=q.o,r=(1.6+1.6*(q.y[3]+1)/2)*o[3],br=0.45+0.55*(q.y[4]+1)/2;splat(o[0],o[1],5*o[3],q.i);ctx.globalAlpha=br;ctx.fillStyle=COL[q.f.cat];ctx.beginPath();ctx.arc(o[0],o[1],Math.max(1,r),0,7);ctx.fill();ctx.globalAlpha=1}
+ lbl(`${items.length} facets with Hydra affinities plotted · ${hyNull} unassigned (null) NOT plotted · restricted excluded · plane: ${AX[PLANES[view.pl][0]]}↔${AX[PLANES[view.pl][1]]}`,12,H()-10,"#9fb4e8")}
+function gizmo(){const cx=W()-48,cy=H()-48;[["x","#ff7a90",1,0,0],["y","#7be0a1",0,1,0],["z","#5ad1ff",0,0,1]].forEach(([n,c,x,y,z])=>{const r=rotate(x,y,z);ctx.strokeStyle=c;ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(cx,cy);ctx.lineTo(cx+r[0]*30,cy-r[1]*30);ctx.stroke();lbl(n,cx+r[0]*36,cy-r[1]*36+4,c,11,"center")})}
+const R=[L0,L1,L2,L3,L4,L5];
+// ---------- compositor ----------
+function frame(){fit();const w=W(),h=H();ctx.clearRect(0,0,w,h);const a=Math.floor(clamp(view.z,0,5)),t=clamp(view.z,0,5)-a;
+ ctx.globalAlpha=a===5?1:1-t;R[a]();ctx.globalAlpha=1;if(t>0&&a<5){ctx.globalAlpha=t;R[a+1]();ctx.globalAlpha=1}
+ ctx.fillStyle="#0009";ctx.fillRect(w-96,8,88,22);lbl("L"+Math.round(view.z),w-52,24,"#fff",14,"center");gizmo();
+ const d=x=>(x*180/Math.PI).toFixed(0);document.getElementById("ori").textContent=`yaw ${d(view.yaw)}° · pitch ${d(view.pitch)}° · roll ${d(view.roll)}° · t ${(view.t%40).toFixed(1)} · 5D ${AX[PLANES[view.pl][0]]}↔${AX[PLANES[view.pl][1]]} ${d(view.ang[view.pl])}°`}
+const FIELDTXT=`UHFE damped wave Φ + UDFE flux-form diffusion Ψ on the facet link graph (dt ${SOL.dt.toFixed(3)}); source = U_H−0.5 from scored facets, unscored = no source / neutral Γ default; pulse released at YOU. Splat: amplitude a=Φ, spread grows with Ψ. Synthetic scores → illustrative, not validated.`;
+// ---------- panel ----------
+let lastLv=-1;
+function panel(force){const lv=Math.round(clamp(view.z,0,5));if(lv===lastLv&&!force)return;lastLv=lv;const L=LEVELS[lv];
+ document.getElementById("lname").textContent=L.id+" · "+L.name;
+ const stc=L.status.startsWith("UNVAL")?"st-unval":"st-implemented";
+ document.getElementById("decl").innerHTML=[["kind",L.kind],["space",L.space],["CRS / convention",L.crs],["data source",L.src],["resolution",L.res],["mapping rule",L.rule],["status",`<span class="tag ${stc}">${L.status}</span>`],["coverage gaps",L.gaps()],["field (modelled)",FIELDTXT],["warning",L.warn]].map(([k,v])=>`<dt>${k}</dt><dd>${v}</dd>`).join("");
+ document.querySelectorAll("#lv button").forEach((b,i)=>b.setAttribute("aria-pressed",i===lv));
+ if(document.getElementById("tbl").style.display==="block")table()}
+function table(){const lv=Math.round(clamp(view.z,0,5));let rows="";
+ if(lv<=2)rows=geoItems.filter(f=>!f.restricted).slice(0,12).map(f=>`<tr><td>${f.id}</td><td>${f.lat.toFixed(2)}, ${f.lon.toFixed(2)}</td><td>${f.lang}</td></tr>`).join(""),rows=`<table><tr><th>facet</th><th>lat, lon</th><th>lang</th></tr>${rows}</table><p class="note">first 12 of ${geoItems.length} geotagged facets</p>`;
+ else if(lv===3){const s=neighbors(view.sel);rows=`<table><tr><th>facet</th><th>hops</th></tr>${[...s].filter(([i,hp])=>hp>0&&!F[i].restricted).slice(0,12).map(([i,hp])=>`<tr><td>${F[i].id}</td><td>${hp}</td></tr>`).join("")}</table><p class="note">first 12 within 3 hops</p>`}
+ else if(lv===4)rows=`<table><tr><th>facet</th><th>PC1</th><th>PC2</th></tr>${proj.slice(0,12).map(p=>`<tr><td>${p.f.id}</td><td>${p.x.toFixed(2)}</td><td>${p.y.toFixed(2)}</td></tr>`).join("")}</table><p class="note">first 12 of ${proj.length} plotted</p>`;
+ else rows=`<table><tr><th>depth</th><th>cells (max)</th></tr>${[1,2,3,4].map(d=>`<tr><td>${d}</td><td>${(7**d-1)/6}</td></tr>`).join("")}</table><p class="note">~22% of sub-cells are gaps (dashed)</p>`;
+ document.getElementById("tbl").innerHTML=rows}
+function check(){const d=digest(F),ok=d===DIGEST0;document.getElementById("chk").innerHTML=`Canonical digest <code>${DIGEST0}</code> → now <code>${d}</code>: <b style="color:var(${ok?"--ok":"--warn"})">${ok?"UNCHANGED ✓":"CHANGED ✗"}</b><br>${N} facets · ${geoItems.length} located · ${nullV8} null V8 · ${restrictedN} restricted`;return ok}
+// ---------- controls ----------
+const lvBox=document.getElementById("lv");LEVELS.forEach((L,i)=>{const b=document.createElement("button");b.textContent=L.id;b.title=L.name;b.onclick=()=>setZ(i);lvBox.appendChild(b)});
+const zr=document.getElementById("zoom");
+function setZ(z){view.z=z;zr.value=z;document.getElementById("zv").textContent=(+z).toFixed(1);panel();check();draw()}
+zr.oninput=()=>setZ(+zr.value);
+document.getElementById("tbtn").onclick=e=>{const t=document.getElementById("tbl"),on=t.style.display!=="block";t.style.display=on?"block":"none";e.target.setAttribute("aria-pressed",on);if(on)table()};
+document.getElementById("chkbtn").onclick=check;
+let tour=null;document.getElementById("auto").onclick=e=>{if(tour){clearInterval(tour);tour=null;e.target.setAttribute("aria-pressed",false);return}e.target.setAttribute("aria-pressed",true);let dir=1;tour=setInterval(()=>{let z=view.z+dir*0.03;if(z>=5){z=5;dir=-1}if(z<=0){z=0;dir=1}setZ(z)},40)};
+const ptrs=new Map();let pinch0=null,z0=0;
+cv.addEventListener("pointerdown",e=>{ptrs.set(e.pointerId,[e.clientX,e.clientY]);try{cv.setPointerCapture(e.pointerId)}catch(_){}if(ptrs.size===2){const[a,b]=[...ptrs.values()];pinch0=Math.hypot(a[0]-b[0],a[1]-b[1]);z0=view.z}});
+cv.addEventListener("pointermove",e=>{if(!ptrs.has(e.pointerId))return;const p=ptrs.get(e.pointerId);
+ if(ptrs.size===2&&pinch0){ptrs.set(e.pointerId,[e.clientX,e.clientY]);const[a,b]=[...ptrs.values()];const d=Math.hypot(a[0]-b[0],a[1]-b[1]);setZ(clamp(z0+(d-pinch0)*0.012,0,5));return}
+ view.yaw+=(e.clientX-p[0])*0.01;view.pitch=clamp(view.pitch+(e.clientY-p[1])*0.01,-1.57,1.57);ptrs.set(e.pointerId,[e.clientX,e.clientY]);syncSliders();draw()});
+const endp=e=>{ptrs.delete(e.pointerId);if(ptrs.size<2)pinch0=null};cv.addEventListener("pointerup",endp);cv.addEventListener("pointercancel",endp);
+cv.addEventListener("wheel",e=>{e.preventDefault();setZ(clamp(view.z+(e.deltaY>0?0.15:-0.15),0,5))},{passive:false});
+const depthBtns=document.createElement("div");
+document.getElementById("stage").insertBefore(Object.assign(document.createElement("label"),{innerHTML:'Structural depth (L5) <input id="dp" type="range" min="1" max="4" value="3" style="width:140px">'}),document.querySelector("#stage .bar:last-child"));
+document.getElementById("dp").oninput=e=>{view.depth=+e.target.value;draw()};
+const rad=d=>d*Math.PI/180;
+function syncSliders(){const g=id=>document.getElementById(id),d=x=>Math.round(x*180/Math.PI);g("yaw").value=d(view.yaw);g("pit").value=d(view.pitch);g("rol").value=d(view.roll);g("tm").value=view.t%40;g("yawv").textContent=d(view.yaw)+"°";g("pitv").textContent=d(view.pitch)+"°";g("rolv").textContent=d(view.roll)+"°";g("tmv").textContent=view.t.toFixed(1);g("pa").value=Math.round(view.ang[view.pl]*180/Math.PI);g("pav").textContent=g("pa").value+"°"}
+for(const [id,k] of [["yaw","yaw"],["pit","pitch"],["rol","roll"]])document.getElementById(id).oninput=e=>{view[k]=rad(+e.target.value);syncSliders();draw()};
+const pls=document.getElementById("pl");PLANES.forEach(([i,j],k)=>pls.add(new Option(AX[i]+" ↔ "+AX[j],k)));
+pls.onchange=()=>{view.pl=+pls.value;syncSliders();draw()};
+document.getElementById("pa").oninput=e=>{view.ang[view.pl]=rad(+e.target.value);syncSliders();draw()};
+document.getElementById("spin").onchange=e=>{view.spin=e.target.checked};
+document.getElementById("tm").oninput=e=>{view.t=+e.target.value;syncSliders();draw()};
+document.querySelectorAll("#presets button").forEach(b=>b.onclick=()=>{const [y,p,r]=b.dataset.p.split(",").map(Number);view.yaw=rad(y);view.pitch=rad(p);view.roll=rad(r);syncSliders();draw()});
+let raf=null,last=0;function loop(ts){if(!view.play)return;const dtp=(ts-last)/1000;view.t=(view.t+dtp*1.5)%40;if(view.spin)view.ang[view.pl]+=dtp*0.6;last=ts;syncSliders();draw();raf=requestAnimationFrame(loop)}
+document.getElementById("play").onclick=e=>{view.play=!view.play;e.target.setAttribute("aria-pressed",view.play);if(view.play){last=performance.now();raf=requestAnimationFrame(loop)}};
+function draw(){frame()}
+window.addEventListener("resize",draw);
+panel(true);check();syncSliders();draw();
+window.__ladder={setZ,check,digest0:DIGEST0,levels:LEVELS.length,view,draw,syncSliders,runSolver,SOL,hyNull,PLANES};
+</script>
+<script>
+if("serviceWorker" in navigator){window.addEventListener("load",()=>{navigator.serviceWorker.register("sw.js").catch(()=>{})})}
+</script>
+</body>
+</html>
